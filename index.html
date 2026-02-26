@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>BloodStrike Rotation Planner</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #121212; color: #e0e0e0; text-align: center; margin: 0; padding: 20px; }
+        .header { margin-bottom: 20px; }
+        #canvas-container { 
+            position: relative; 
+            display: inline-block; 
+            border: 3px solid #333; 
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+            background: #000;
+        }
+        canvas { position: absolute; top: 0; left: 0; cursor: crosshair; }
+        img { display: block; max-width: 90vw; height: auto; }
+        
+        .controls { 
+            margin-top: 15px; 
+            padding: 20px; 
+            background: #252525; 
+            border-radius: 8px;
+            display: inline-block;
+        }
+        select, button, input { 
+            padding: 10px; 
+            margin: 5px; 
+            border-radius: 5px; 
+            border: none; 
+            font-weight: bold;
+        }
+        select { background: #444; color: white; cursor: pointer; }
+        button { cursor: pointer; transition: 0.2s; }
+        .btn-undo { background: #f39c12; color: white; }
+        .btn-clear { background: #e74c3c; color: white; }
+        button:hover { opacity: 0.8; }
+        label { margin-left: 15px; font-size: 0.9em; color: #aaa; }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>BloodStrike Rotation Planner</h1>
+        <select id="mapSelector" onchange="changeMap()">
+            <option value="shutter.jpg">Shutter Island</option>
+            <option value="valley.jpg">Valley</option>
+            <option value="desert.jpg">Desert</option>
+        </select>
+    </div>
+    
+    <div id="canvas-container">
+        <img id="mapSource" src="shutter.jpg" alt="BloodStrike Map">
+        <canvas id="drawingCanvas"></canvas>
+    </div>
+
+    <div class="controls">
+        <button class="btn-undo" onclick="undo()">Undo</button>
+        <button class="btn-clear" onclick="clearCanvas()">Clear All</button>
+        
+        <label>Color:</label>
+        <input type="color" id="colorPicker" value="#00ff00">
+        
+        <label>Brush Size:</label>
+        <input type="range" id="widthPicker" min="1" max="12" value="4">
+        
+        <button style="background: #27ae60; color: white;" onclick="downloadMap()">Save Image</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('drawingCanvas');
+        const ctx = canvas.getContext('2d');
+        const img = document.getElementById('mapSource');
+        const mapSelector = document.getElementById('mapSelector');
+        let drawing = false;
+        let history = [];
+
+        // Sync canvas size to image size whenever image loads
+        function syncSize() {
+            canvas.width = img.clientWidth;
+            canvas.height = img.clientHeight;
+            clearCanvas(); // Clear drawings when switching maps
+        }
+
+        window.addEventListener('load', syncSize);
+        window.addEventListener('resize', syncSize);
+
+        function changeMap() {
+            img.src = mapSelector.value;
+            // The syncSize will trigger via img.onload or manually
+            setTimeout(syncSize, 100); 
+        }
+
+        function startDrawing(e) {
+            drawing = true;
+            ctx.beginPath();
+            ctx.moveTo(e.offsetX, e.offsetY);
+            history.push(ctx.getImageData(0, 0, canvas.width, canvas.height));
+        }
+
+        function draw(e) {
+            if (!drawing) return;
+            ctx.lineTo(e.offsetX, e.offsetY);
+            ctx.strokeStyle = document.getElementById('colorPicker').value;
+            ctx.lineWidth = document.getElementById('widthPicker').value;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.stroke();
+        }
+
+        function stopDrawing() { drawing = false; }
+
+        function clearCanvas() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            history = [];
+        }
+
+        function undo() {
+            if (history.length > 0) {
+                ctx.putImageData(history.pop(), 0, 0);
+            }
+        }
+
+        // Feature: Export your strategy as a single image
+        function downloadMap() {
+            const tempCanvas = document.createElement('canvas');
+            const tCtx = tempCanvas.getContext('2d');
+            tempCanvas.width = canvas.width;
+            tempCanvas.height = canvas.height;
+            
+            tCtx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            tCtx.drawImage(canvas, 0, 0);
+            
+            const link = document.createElement('a');
+            link.download = 'strategy_plan.png';
+            link.href = tempCanvas.toDataURL();
+            link.click();
+        }
+
+        canvas.addEventListener('mousedown', startDrawing);
+        canvas.addEventListener('mousemove', draw);
+        canvas.addEventListener('mouseup', stopDrawing);
+        canvas.addEventListener('mouseleave', stopDrawing);
+    </script>
+</body>
+</html>
