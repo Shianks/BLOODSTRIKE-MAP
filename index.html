@@ -1,145 +1,177 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>BloodStrike Rotation Planner</title>
+    <title>BloodStrike Rotation Planner Pro</title>
     <style>
-        body { font-family: 'Segoe UI', sans-serif; background: #121212; color: #e0e0e0; text-align: center; margin: 0; padding: 20px; }
-        .header { margin-bottom: 20px; }
-        #canvas-container { 
-            position: relative; 
-            display: inline-block; 
-            border: 3px solid #333; 
-            box-shadow: 0 0 20px rgba(0,0,0,0.5);
-            background: #000;
-        }
-        canvas { position: absolute; top: 0; left: 0; cursor: crosshair; }
-        img { display: block; max-width: 90vw; height: auto; }
+        body { font-family: 'Segoe UI', sans-serif; background: #0f0f0f; color: #e0e0e0; margin: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
         
-        .controls { 
-            margin-top: 15px; 
-            padding: 20px; 
-            background: #252525; 
-            border-radius: 8px;
-            display: inline-block;
+        /* Centering the Map Workspace */
+        #viewport { 
+            flex-grow: 1; 
+            position: relative; 
+            overflow: hidden; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center;
+            background: radial-gradient(circle, #222 0%, #000 100%);
         }
-        select, button, input { 
-            padding: 10px; 
-            margin: 5px; 
-            border-radius: 5px; 
-            border: none; 
-            font-weight: bold;
+
+        #map-wrapper { 
+            position: relative; 
+            transform-origin: center;
+            transition: transform 0.1s ease-out;
+            cursor: grab;
         }
-        select { background: #444; color: white; cursor: pointer; }
-        button { cursor: pointer; transition: 0.2s; }
+
+        #mapSource { display: block; max-height: 85vh; width: auto; pointer-events: none; user-select: none; }
+        canvas { position: absolute; top: 0; left: 0; cursor: crosshair; }
+
+        /* Draggable Player Icon */
+        #playerIcon {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 30px;
+            height: 30px;
+            background: #00eeff;
+            clip-path: polygon(50% 0%, 0% 100%, 50% 80%, 100% 100%); /* Tactical Arrow Shape */
+            cursor: move;
+            z-index: 10;
+            box-shadow: 0 0 10px #00eeff;
+            border: 2px solid white;
+        }
+
+        /* UI Styling */
+        .ui-top { padding: 10px; background: rgba(0,0,0,0.8); text-align: center; z-index: 20; }
+        .ui-bottom { padding: 15px; background: #1a1a1a; display: flex; justify-content: center; gap: 15px; align-items: center; z-index: 20; }
+        
+        select, button, input { padding: 8px 15px; border-radius: 4px; border: none; font-weight: bold; cursor: pointer; }
         .btn-undo { background: #f39c12; color: white; }
         .btn-clear { background: #e74c3c; color: white; }
-        button:hover { opacity: 0.8; }
-        label { margin-left: 15px; font-size: 0.9em; color: #aaa; }
+        .btn-save { background: #27ae60; color: white; }
+        label { font-size: 12px; color: #888; text-transform: uppercase; }
     </style>
 </head>
 <body>
 
-    <div class="header">
-        <h1>BloodStrike Rotation Planner</h1>
+    <div class="ui-top">
         <select id="mapSelector" onchange="changeMap()">
             <option value="shutter.jpg">Shutter Island</option>
             <option value="valley.jpg">Valley</option>
             <option value="sky.jpg">sky</option>
         </select>
-    </div>
-    
-    <div id="canvas-container">
-        <img id="mapSource" src="shutter.jpg" alt="BloodStrike Map">
-        <canvas id="drawingCanvas"></canvas>
+        <span style="margin-left: 20px; font-size: 0.8em;">Scroll to Zoom | Middle-Click to Pan</span>
     </div>
 
-    <div class="controls">
+    <div id="viewport">
+        <div id="map-wrapper">
+            <img id="mapSource" src="shutter.jpg">
+            <canvas id="drawingCanvas"></canvas>
+            <div id="playerIcon" title="Drag to Move Player"></div>
+        </div>
+    </div>
+
+    <div class="ui-bottom">
         <button class="btn-undo" onclick="undo()">Undo</button>
-        <button class="btn-clear" onclick="clearCanvas()">Clear All</button>
+        <button class="btn-clear" onclick="clearCanvas()">Clear Lines</button>
         
-        <label>Color:</label>
-        <input type="color" id="colorPicker" value="#00ff00">
+        <label>Color</label>
+        <input type="color" id="colorPicker" value="#ffff00">
         
-        <label>Brush Size:</label>
-        <input type="range" id="widthPicker" min="1" max="12" value="4">
+        <label>Size</label>
+        <input type="range" id="widthPicker" min="1" max="10" value="3">
         
-        <button style="background: #27ae60; color: white;" onclick="downloadMap()">Save Image</button>
+        <button class="btn-save" onclick="downloadMap()">Export Plan</button>
     </div>
 
     <script>
+        const wrapper = document.getElementById('map-wrapper');
         const canvas = document.getElementById('drawingCanvas');
         const ctx = canvas.getContext('2d');
         const img = document.getElementById('mapSource');
-        const mapSelector = document.getElementById('mapSelector');
+        const player = document.getElementById('playerIcon');
+        
+        let scale = 1;
         let drawing = false;
         let history = [];
 
-        // Sync canvas size to image size whenever image loads
+        // --- ZOOM LOGIC ---
+        window.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            scale += e.deltaY * -0.001;
+            scale = Math.min(Math.max(.5, scale), 3); // Limit zoom between 0.5x and 3x
+            wrapper.style.transform = `scale(${scale})`;
+        }, { passive: false });
+
+        // --- DRAWING LOGIC ---
         function syncSize() {
-            canvas.width = img.clientWidth;
-            canvas.height = img.clientHeight;
-            clearCanvas(); // Clear drawings when switching maps
+            canvas.width = img.width || img.clientWidth;
+            canvas.height = img.height || img.clientHeight;
         }
 
-        window.addEventListener('load', syncSize);
-        window.addEventListener('resize', syncSize);
+        img.onload = syncSize;
 
-        function changeMap() {
-            img.src = mapSelector.value;
-            // The syncSize will trigger via img.onload or manually
-            setTimeout(syncSize, 100); 
-        }
-
-        function startDrawing(e) {
+        canvas.addEventListener('mousedown', (e) => {
+            if (e.button !== 0) return; // Only left click draws
             drawing = true;
             ctx.beginPath();
             ctx.moveTo(e.offsetX, e.offsetY);
             history.push(ctx.getImageData(0, 0, canvas.width, canvas.height));
-        }
+        });
 
-        function draw(e) {
+        canvas.addEventListener('mousemove', (e) => {
             if (!drawing) return;
             ctx.lineTo(e.offsetX, e.offsetY);
             ctx.strokeStyle = document.getElementById('colorPicker').value;
-            ctx.lineWidth = document.getElementById('widthPicker').value;
+            ctx.lineWidth = document.getElementById('widthPicker').value / scale; // Keep line consistent during zoom
             ctx.lineCap = 'round';
-            ctx.lineJoin = 'round';
             ctx.stroke();
+        });
+
+        window.addEventListener('mouseup', () => drawing = false);
+
+        // --- PLAYER DRAG LOGIC ---
+        let isDraggingPlayer = false;
+        player.addEventListener('mousedown', (e) => {
+            isDraggingPlayer = true;
+            e.stopPropagation();
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (!isDraggingPlayer) return;
+            const rect = wrapper.getBoundingClientRect();
+            let x = (e.clientX - rect.left) / scale;
+            let y = (e.clientY - rect.top) / scale;
+            player.style.left = `${x - 15}px`;
+            player.style.top = `${y - 15}px`;
+        });
+
+        window.addEventListener('mouseup', () => isDraggingPlayer = false);
+
+        // --- GENERAL TOOLS ---
+        function changeMap() {
+            img.src = document.getElementById('mapSelector').value;
+            clearCanvas();
+            scale = 1;
+            wrapper.style.transform = `scale(1)`;
         }
 
-        function stopDrawing() { drawing = false; }
+        function clearCanvas() { ctx.clearRect(0, 0, canvas.width, canvas.height); history = []; }
 
-        function clearCanvas() {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            history = [];
-        }
+        function undo() { if (history.length > 0) ctx.putImageData(history.pop(), 0, 0); }
 
-        function undo() {
-            if (history.length > 0) {
-                ctx.putImageData(history.pop(), 0, 0);
-            }
-        }
-
-        // Feature: Export your strategy as a single image
         function downloadMap() {
             const tempCanvas = document.createElement('canvas');
             const tCtx = tempCanvas.getContext('2d');
             tempCanvas.width = canvas.width;
             tempCanvas.height = canvas.height;
-            
             tCtx.drawImage(img, 0, 0, canvas.width, canvas.height);
             tCtx.drawImage(canvas, 0, 0);
-            
             const link = document.createElement('a');
-            link.download = 'strategy_plan.png';
+            link.download = 'bloodstrike_strat.png';
             link.href = tempCanvas.toDataURL();
             link.click();
         }
-
-        canvas.addEventListener('mousedown', startDrawing);
-        canvas.addEventListener('mousemove', draw);
-        canvas.addEventListener('mouseup', stopDrawing);
-        canvas.addEventListener('mouseleave', stopDrawing);
     </script>
 </body>
 </html>
